@@ -38,6 +38,8 @@ class MaskToContour():
         if self.debug:
             self.display(img, myo_mask, endo_pointcloud, epi_pointcloud, apex, ref)
 
+        self.display(img, myo_mask, endo_pointcloud, epi_pointcloud, apex, ref)
+
         return endo_pointcloud, epi_pointcloud, apex
 
 
@@ -48,11 +50,7 @@ class MaskToContour():
 
 
     def cumulativeCurveLength(self, blockedPointCloud):
-        """
 
-        :param blockedPointCloud:
-        :return:
-        """
         cumulative = np.zeros(len(blockedPointCloud))
 
         for i in range(1, cumulative.shape[0]):
@@ -79,8 +77,6 @@ class MaskToContour():
     def populatePointClouds(self, endo_blocked, epi_blocked):
         """
 
-        :param endo_pointcloud:
-        :param epi_pointcloud:
         :param endo_blocked:
         :param epi_blocked:
         :return:
@@ -95,7 +91,29 @@ class MaskToContour():
 
         endo_increment = cumEndoCL[-1] / self.pointCloudDensity
         epi_increment = cumEpiCL[-1] / self.pointCloudDensity
+        """
+        endo_interped_x = np.interp(x=np.linspace(0, cumEndoCL[-1], self.pointCloudDensity),
+                  xp=cumEndoCL,
+                  fp=np.array(endo_blocked)[:,0])
 
+        endo_interped_y = np.interp(x=np.linspace(0, cumEndoCL[-1], self.pointCloudDensity),
+                      xp=cumEndoCL,
+                      fp=np.array(endo_blocked)[:,1])
+
+        endo_pointcloud[:,0] = endo_interped_x
+        endo_pointcloud[:,1] = endo_interped_y
+
+        epi_interped_x = np.interp(x=np.linspace(0, cumEpiCL[-1], self.pointCloudDensity),
+                      xp=cumEpiCL,
+                      fp=np.array(epi_blocked)[:,0])
+
+        epi_interped_y = np.interp(x=np.linspace(0, cumEpiCL[-1], self.pointCloudDensity),
+                      xp=cumEpiCL,
+                      fp=np.array(epi_blocked)[:,1])
+        epi_pointcloud[:,0] = epi_interped_x
+        epi_pointcloud[:,1] = epi_interped_y
+        return endo_pointcloud, epi_pointcloud
+        """
         current_x, current_y = endo_blocked[0]
         for current_ind in range(1, 100):
             argS = np.argsort(np.abs(cumEndoCL - current_ind*endo_increment))
