@@ -1,6 +1,7 @@
 import numpy as np
 import plotly.graph_objs as go
 import plotly.express as px
+from utils import *
 
 class MaskToContour():
 
@@ -22,23 +23,34 @@ class MaskToContour():
         endo_blocked, epi_blocked, firstRay, lastRay = self.acquireEndoEpiBlocks(start_endo_phi, centroid_x, centroid_y, myo_mask)
 
         if self.debug:
-            for i, j in endo_blocked:
+            for j, i in endo_blocked:
                 myo_mask[i, j] = 20
 
-            for i, j in epi_blocked:
+            for j, i in epi_blocked:
                 myo_mask[i, j] = 40
-            self.display(None, myo_mask)
+            #self.display(None, myo_mask)
 
         # Get equi-distant point clouds from the blocked point sets
-        endo_pointcloud, epi_pointcloud = self.populatePointClouds(endo_blocked, epi_blocked)
+        endo_pointcloud, epi_pointcloud = self.populatePointClouds2Interp(endo_blocked, epi_blocked)
+        endo_pointcloud, epi_pointcloud = self.populatePointClouds2Interp(endo_pointcloud, epi_pointcloud)
+        endo_pointcloud, epi_pointcloud = self.populatePointClouds2Interp(endo_pointcloud, epi_pointcloud)
+        endo_pointcloud, epi_pointcloud = self.populatePointClouds2Interp(endo_pointcloud, epi_pointcloud)
+
+        #self.moveEpi(endo_pointcloud, epi_pointcloud, np.array([centroid_x, centroid_y]))
+
+        dists = np.array([np.linalg.norm(endo_pointcloud[i] - endo_pointcloud[i+1]) for i in range(self.pointCloudDensity - 1)])
+        print(dists.std())
+
 
         # Get apex
         apex, ref = self.getApex(epi_pointcloud)
 
-        if self.debug:
-            self.display(img, myo_mask, endo_pointcloud, epi_pointcloud, apex, ref)
+        #if self.debug:
+            #self.display(img, myo_mask, endo_pointcloud, epi_pointcloud, apex, ref)
 
         self.display(img, myo_mask, endo_pointcloud, epi_pointcloud, apex, ref)
+
+
 
         return endo_pointcloud, epi_pointcloud, apex
 
@@ -47,6 +59,42 @@ class MaskToContour():
         if (0 <= i < imshape[0]) and (0 <= j < imshape[1]):
             return True
         return False
+
+    def moveEpi(self, endoPointCloud, epiPointCloud, centroid):
+        """
+
+        :param endoPointCloud:
+        :param epiPointCloud:
+        :return:
+        """
+        radius = 3
+        normals = np.zeros(shape=(self.pointCloudDensity, 2))
+        for i in range(self.pointCloudDensity):
+            check = [j for j in range(i-radius, i+radius+1) if 0 <= j < self.pointCloudDensity]
+            for check_i in check:
+                nrm = np.linalg.norm(endoPointCloud[check_i] - epiPointCloud[i])
+                if nrm < 1:
+                    # Get direction to move
+                    if check_i - 1 < 0:
+                        normalL = np.array([0, 0])
+                    else:
+                        normalL = np.flip(endoPointCloud[check_i - 1] - endoPointCloud[check_i]) * [-1, 1]
+                        if np.dot(normalL, centroid - endoPointCloud[check_i]) > 0:
+                            normalL *= -1
+                    if check_i + 1 >= self.pointCloudDensity:
+                        normalR = np.array([0, 0])
+                    else:
+                        normalR = np.flip(endoPointCloud[check_i + 1] - endoPointCloud[check_i]) * [-1, 1]
+                        if np.dot(normalR, centroid - endoPointCloud[check_i]) > 0:
+                            normalR *= -1
+
+                    epiPointCloud[i] = endoPointCloud[check_i] + ((normalR + normalL) / np.linalg.norm(normalR + normalL)) * 1.002
+
+                    break
+
+        # Now just apply epi_pointcloud + normals
+        return normals
+
 
 
     def cumulativeCurveLength(self, blockedPointCloud):
@@ -73,14 +121,13 @@ class MaskToContour():
         apex_ind = np.argmax([np.linalg.norm(epi_pointcloud[i] - ref) for i in range(self.pointCloudDensity)])
         return epi_pointcloud[apex_ind], ref
 
-
-    def populatePointClouds(self, endo_blocked, epi_blocked):
+    def populatePointClouds2Interp(self, endo_blocked, epi_blocked):
         """
-
         :param endo_blocked:
         :param epi_blocked:
         :return:
         """
+
         endo_pointcloud = np.zeros(shape=(self.pointCloudDensity, 2))
         epi_pointcloud = np.zeros(shape=(self.pointCloudDensity, 2))
         endo_pointcloud[0] = np.array(endo_blocked[0])
@@ -89,9 +136,6 @@ class MaskToContour():
         cumEndoCL = self.cumulativeCurveLength(endo_blocked)
         cumEpiCL = self.cumulativeCurveLength(epi_blocked)
 
-        endo_increment = cumEndoCL[-1] / self.pointCloudDensity
-        epi_increment = cumEpiCL[-1] / self.pointCloudDensity
-        """
         endo_interped_x = np.interp(x=np.linspace(0, cumEndoCL[-1], self.pointCloudDensity),
                   xp=cumEndoCL,
                   fp=np.array(endo_blocked)[:,0])
@@ -113,7 +157,25 @@ class MaskToContour():
         epi_pointcloud[:,0] = epi_interped_x
         epi_pointcloud[:,1] = epi_interped_y
         return endo_pointcloud, epi_pointcloud
+
+
+    def populatePointClouds(self, endo_blocked, epi_blocked):
         """
+        :param endo_blocked:
+        :param epi_blocked:
+        :return:
+        """
+        endo_pointcloud = np.zeros(shape=(self.pointCloudDensity, 2))
+        epi_pointcloud = np.zeros(shape=(self.pointCloudDensity, 2))
+        endo_pointcloud[0] = np.array(endo_blocked[0])
+        epi_pointcloud[0] = np.array(epi_blocked[0])
+
+        cumEndoCL = self.cumulativeCurveLength(endo_blocked)
+        cumEpiCL = self.cumulativeCurveLength(epi_blocked)
+
+        endo_increment = cumEndoCL[-1] / self.pointCloudDensity
+        epi_increment = cumEpiCL[-1] / self.pointCloudDensity
+
         current_x, current_y = endo_blocked[0]
         for current_ind in range(1, 100):
             argS = np.argsort(np.abs(cumEndoCL - current_ind*endo_increment))
@@ -149,6 +211,46 @@ class MaskToContour():
         return endo_pointcloud, epi_pointcloud
 
 
+    def populatePointClouds3(self, endo_blocked, epi_blocked):
+        """
+        :param endo_blocked:
+        :param epi_blocked:
+        :return:
+        """
+
+        endo_blocked, epi_blocked = np.flip(np.array(endo_blocked), 1) * [1, -1], np.flip(np.array(epi_blocked), 1)*[1, -1]
+        endo_pointcloud = np.zeros(shape=(self.pointCloudDensity, 2))
+        epi_pointcloud = np.zeros(shape=(self.pointCloudDensity, 2))
+        endo_pointcloud[0] = np.flip(np.array(endo_blocked[0])) * [-1, 1]
+        epi_pointcloud[0] = np.flip(np.array(epi_blocked[0])) * [-1, 1]
+
+        cumEndoCL = self.cumulativeCurveLength(endo_blocked)
+        cumEpiCL = self.cumulativeCurveLength(epi_blocked)
+
+        endo_increment = cumEndoCL[-1] / self.pointCloudDensity
+        epi_increment = cumEpiCL[-1] / self.pointCloudDensity
+
+        current_x, current_y = endo_blocked[0]
+        for current_ind in range(1, 100):
+            argS = np.argsort(np.abs(cumEndoCL - current_ind*endo_increment))
+            goto_A = argS[0]
+            goto_B = argS[1]
+            AB = endo_blocked[goto_B] - endo_blocked[goto_A]
+            pts = []
+            rejectionNorms = []
+            curr2A = endo_blocked[goto_A] - np.array([current_x, current_y])
+            curr2B = endo_blocked[goto_B] - np.array([current_x, current_y])
+            for theta in np.linspace(np.arctan(curr2A[1]/curr2A[0]), np.arctan(curr2B[1]/curr2B[0]), 200):
+                h = np.array([current_x + np.cos(theta)*endo_increment, current_y + np.sin(theta)*endo_increment])
+                Ah = h - endo_blocked[goto_A]
+                rejectionNorms.append(np.linalg.norm(rejection(AB, Ah)))
+                pts.append(h)
+            bestArg = np.argmin(rejectionNorms)
+            current_x, current_y = pts[bestArg]
+            endo_pointcloud[current_ind] = np.flip(pts[bestArg])  * [-1, 1]
+
+        return endo_pointcloud, epi_pointcloud
+
     def acquireEndoEpiBlocks(self, start_endo_phi, centroid_x, centroid_y, mask):
         """
 
@@ -177,9 +279,11 @@ class MaskToContour():
             argwhere = np.argwhere(ray == 1).flatten()
 
             ij_endo = ray_indices[argwhere[0]]
-            ij_epi = ray_indices[argwhere[-1]]
             if ij_endo not in endo:
                 endo[ij_endo] = 1
+            if ray_indices[argwhere[-1]] == ray_indices[argwhere[0]]:
+                continue
+            ij_epi = ray_indices[argwhere[-1]]
             if ij_epi not in epi:
                 epi[ij_epi] = 1
 
@@ -202,12 +306,12 @@ class MaskToContour():
         for r in np.linspace(0, maxR, int(maxR / self.dR)):
             x = r * np.cos(phi)
             y = r * np.sin(phi)
-            j, i = round(centroid_x + x), round(centroid_y - y)
+            j, i = round(centroid_x + x), round(centroid_y + y)
             if not self.bounds(i, j, imshape):
                 break
-            if (i,j) in inds:
+            if (j, i) in inds:
                 continue
-            inds[(i,j)] = 1
+            inds[(j,i)] = 1
             ray_vals.append(mask[i, j])
         return np.array(ray_vals), list(inds.keys())
 
@@ -233,11 +337,12 @@ class MaskToContour():
     def display(self, img, mask, endoPointCloud=None, epiPointCloud=None, apex=None, ref=None):
         for base_img in (img, mask):
             if base_img is None: continue
-            fig = px.imshow(base_img, color_continuous_scale='gray')
+            fig = px.imshow(base_img, color_continuous_scale='gray', origin="lower")
             if endoPointCloud is not None:
-                fig.add_trace(go.Scatter(x=endoPointCloud[:,1], y=endoPointCloud[:,0], mode='markers+lines', marker=dict(color='#f94144', size=8)))
+                fig.add_trace(go.Scatter(x=endoPointCloud[:,0], y=endoPointCloud[:,1], mode='markers+lines', marker=dict(color='#f94144', size=8)))
             if epiPointCloud is not None:
-                fig.add_trace(go.Scatter(x=epiPointCloud[:,1], y=epiPointCloud[:,0], mode='markers+lines', marker=dict(color='#43aa8b', size=8)))
+                fig.add_trace(go.Scatter(x=epiPointCloud[:,0], y=epiPointCloud[:,1], mode='markers+lines', marker=dict(color='#43aa8b', size=8)))
             if apex is not None:
-                fig.add_trace(go.Scatter(x=[apex[1], ref[1]], y=[apex[0], ref[0]], marker=dict(color="#277da1", size=20)))
+                fig.add_trace(go.Scatter(x=[apex[0], ref[0]], y=[apex[1], ref[1]], marker=dict(color="#277da1", size=20)))
+
             fig.show()

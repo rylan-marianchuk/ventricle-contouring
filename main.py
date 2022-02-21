@@ -4,7 +4,7 @@ from PIL import Image
 import imageio
 import os
 
-img_file = os.listdir("./img/raw")[1]
+img_file = os.listdir("./img/raw")[2]
 mask_file = "predicted_" + img_file
 
 GetContour = MaskToContour(debug=True)
