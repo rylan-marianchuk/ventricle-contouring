@@ -199,7 +199,7 @@ class MaskToContour():
         Starting from a given phi, linearly iterate through 2pi radians, casting rays at dPhi and assigning the
         blocked endo and epi lining.
 
-        :param phi:
+        :param start_endo_phi: the identified angle from the centroid to start gathering the endo & epicardium
         :param centroid: (ndarray) shape=(2,), the coordinate of the ventricle's centroid
         :param mask: (ndarray) shape=(N, M), dtype=  1 assigned to only pixels on the lining of the ventricle, 0 elsewhere
         :return:
@@ -303,9 +303,9 @@ class MaskToContour():
 
         :param img: (ndarray), shape=(N, M), dtype=uint16, MRI derived initial image before segmentation, for overlay
         :param myo_mask: (ndarray), shape=(N, M), dtype=  1 assigned to only pixels on the lining of the ventricle, 0 elsewhere
-        endoContour:  (ndarray), shape=(self.pointCloudDensity, 2)  ordered, each row is a coordinate of the equidistant
+        :param endoContour:  (ndarray), shape=(self.pointCloudDensity, 2)  ordered, each row is a coordinate of the equidistant
                       endocardium contour
-        epiContour:  (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the equidistant
+        :param epiContour:  (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the equidistant
                       epicardium contour
         :param apex: (ndarray) shape=(2,) the coordinate of the ventricle's apex
         :param ref: (ndarray) shape=(2,) the coordinate of the middle ventricle base
