@@ -18,7 +18,7 @@ Given two binary masks as ndarrays:
 * ```lumen_mask``` places 1 throughout the ventricle volume
 * ```myo_mask``` places 1 on the myocardium (lining the ventricle)
 
-<img alt="Myocardiam mask (left), Solid lumen mask (right)" height="500" src="img/readme/myo-lumen.png" width="1175"/>
+![Myocardiam mask (left), Solid lumen mask (right)](img/readme/myo-lumen.png)
 
 *Myocardiam mask (left), Solid lumen mask (right)*
 
