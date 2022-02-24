@@ -74,7 +74,7 @@ class MaskToContour():
             for j, i in epiBlocked:
                 myo_mask[i, j] = 40
             # Display the images with contours overlayed
-            self.display(imgOverlay, myo_mask[int(centroid[1])-50:int(centroid[1])+50, int(centroid[0])-50:int(centroid[0])+50], endoContour, epiContour, apex, ref)
+            self.display(imgOverlay, myo_mask, endoContour, epiContour, apex, ref)
 
         return endoContour, epiContour, apex
 
@@ -315,9 +315,9 @@ class MaskToContour():
             if base_img is None: continue
             fig = px.imshow(base_img, color_continuous_scale='gray', origin="lower")
             if endoContour is not None:
-                fig.add_trace(go.Scatter(x=endoContour[:, 0], y=endoContour[:, 1], mode='markers+lines', marker=dict(color='#f94144', size=8)))
+                fig.add_trace(go.Scatter(x=endoContour[:, 0], y=endoContour[:, 1], mode='markers+lines', marker=dict(color='#01497c', size=8)))
             if epiContour is not None:
-                fig.add_trace(go.Scatter(x=epiContour[:, 0], y=epiContour[:, 1], mode='markers+lines', marker=dict(color='#43aa8b', size=8)))
+                fig.add_trace(go.Scatter(x=epiContour[:, 0], y=epiContour[:, 1], mode='markers+lines', marker=dict(color='#89c2d9', size=8)))
             if apex is not None:
                 fig.add_trace(go.Scatter(x=[apex[0], ref[0]], y=[apex[1], ref[1]], marker=dict(color="#277da1", size=20)))
 
