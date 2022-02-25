@@ -1,11 +1,11 @@
 import numpy as np
 import plotly.graph_objs as go
 import plotly.express as px
-from utils import *
+from utils import cumulative_curve_length, bounds
 
 class MaskToContour():
 
-    def __init__(self, debug=False, dPhi=0.01, dR=0.5, contourDensity=100):
+    def __init__(self, debug=False, dPhi=0.01, dR=0.5, contour_density=100):
         """
         Construct a contour generator object
         :param debug: (bool) whether to generate figures showing the contour overlayed on mask and image
@@ -16,23 +16,23 @@ class MaskToContour():
         self.dPhi = dPhi
         self.dR = dR
         self.debug = debug
-        self.contourDensity = contourDensity
+        self.contour_density = contour_density
 
 
-    def __call__(self, solid_mask, myo_mask, imgOverlay=None):
+    def __call__(self, solid_mask, myo_mask, img_overlay=None):
         """
         Obtain the contours of epicaridum, endocardium, and the location of the apex, given the binary masks
         :param solid_mask: (ndarray), shape=(N, M), dtype=
                            1 assigned to every pixel within the ventricle, including the lining and its volume, 0 elsewhere
         :param myo_mask: (ndarray), shape=(N, M), dtype=
                            1 assigned to only pixels on the lining of the ventricle, 0 elsewhere
-        :param imgOverlay: (ndarray), shape=(N, M), dtype=uint16, MRI derived initial image before segmentation
+        :param img_overlay: (ndarray), shape=(N, M), dtype=uint16, MRI derived initial image before segmentation
 
 
         :return -
-            endoContour:  (ndarray), shape=(self.pointCloudDensity, 2)  ordered, each row is a coordinate of the equidistant
+            endo_contour:  (ndarray), shape=(self.pointCloudDensity, 2)  ordered, each row is a coordinate of the equidistant
                           endocardium contour
-            epiContour:  (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the equidistant
+            epi_contour:  (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the equidistant
                           epicardium contour
             apex: (ndarray), shape=(2,) the coordinate of the apex, lying on the epicardium contour
         """
@@ -42,44 +42,44 @@ class MaskToContour():
         centroid = np.flip(centroid)
 
         # Cast rays counter clockwise and return the phi of first all zero ray after finding ventricle
-        start_endo_phi = self.getEdgePhi(centroid, myo_mask)
+        start_endo_phi = self.get_edge_phi(centroid, myo_mask)
 
         # Go clockwise and populate the blocked contour of both endo and epi
-        endoBlocked, epiBlocked = self.acquireEndoEpiBlocks(start_endo_phi, centroid, myo_mask)
+        endo_blocked, epi_blocked = self.acquire_endo_epi_pixels(start_endo_phi, centroid, myo_mask)
 
         # Get equi-distant point clouds from the blocked point sets
-        endoContour, epiContour = self.populatePointCloudsByInterp(endoBlocked, epiBlocked)
+        endo_contour, epi_contour = self.interp_contours(endo_blocked, epi_blocked)
 
         # Fix the distances of endo and epi so that there is at least a 1 unit gap between them, resampling on each fix
         loopsLeft = 10
-        while not self.moveEpi(endoContour, epiContour, centroid) and loopsLeft > 0:
-            endoContour, epiContour = self.populatePointCloudsByInterp(endoContour, epiContour)
+        while not self.move_epi(endo_contour, epi_contour, centroid) and loopsLeft > 0:
+            endo_contour, epi_contour = self.interp_contours(endo_contour, epi_contour)
             loopsLeft -= 1
 
-        endoContour, epiContour = self.populatePointCloudsByInterp(endoContour, epiContour)
-        endoContour, epiContour = self.populatePointCloudsByInterp(endoContour, epiContour)
+        endo_contour, epi_contour = self.interp_contours(endo_contour, epi_contour)
+        endo_contour, epi_contour = self.interp_contours(endo_contour, epi_contour)
 
         # Get apex
-        apex, ref = self.getApex(epiContour)
+        apex, ref = self.get_apex(epi_contour)
 
         if self.debug:
             # Print the standard deviation of all point distances
-            dists = np.array([np.linalg.norm(endoContour[i] - endoContour[i + 1]) for i in range(self.contourDensity - 1)])
+            dists = np.array([np.linalg.norm(endo_contour[i] - endo_contour[i + 1]) for i in range(self.contour_density - 1)])
             print(dists.std())
 
             # Color the blocked contours
-            for j, i in endoBlocked:
+            for j, i in endo_blocked:
                 myo_mask[i, j] = 20
 
-            for j, i in epiBlocked:
+            for j, i in epi_blocked:
                 myo_mask[i, j] = 40
             # Display the images with contours overlayed
-            self.display(imgOverlay, myo_mask, endoContour, epiContour, apex, ref)
+            self.display(img_overlay, myo_mask, endo_contour, epi_contour, apex, ref)
 
-        return endoContour, epiContour, apex
+        return endo_contour, epi_contour, apex
 
 
-    def moveEpi(self, endoContour, epiContour, centroid):
+    def move_epi(self, endoContour, epiContour, centroid):
         """
         Go through the neighbours of each point in the epiContour, and check if they are at least 1 unit away from all
         endo neighbours.
@@ -96,9 +96,9 @@ class MaskToContour():
 
         radius = 3
         all_far = True
-        for i in range(self.contourDensity):
+        for i in range(self.contour_density):
             # Using the radius get the indices to check surrounding
-            check = [j for j in range(i-radius, i+radius+1) if 0 <= j < self.contourDensity]
+            check = [j for j in range(i-radius, i+radius+1) if 0 <= j < self.contour_density]
             for check_i in check:
                 nrm = np.linalg.norm(endoContour[check_i] - epiContour[i])
 
@@ -108,93 +108,93 @@ class MaskToContour():
                     # Get direction to move by adding the two normals of the neighbouring line segments
                     # If this is a left edge point, its left normal is the zero vector
                     if check_i - 1 < 0:
-                        normalL = np.array([0, 0])
+                        normal_l = np.array([0, 0])
                     else:
-                        normalL = np.flip(endoContour[check_i - 1] - endoContour[check_i]) * [-1, 1]
+                        normal_l = np.flip(endoContour[check_i - 1] - endoContour[check_i]) * [-1, 1]
 
                         # Flip the normal if its pointing the wrong way. The dot product with the vector from i to the centroid
                         # should be negative, otherwise negate it
-                        if np.dot(normalL, centroid - endoContour[check_i]) > 0:
-                            normalL *= -1
+                        if np.dot(normal_l, centroid - endoContour[check_i]) > 0:
+                            normal_l *= -1
 
                     # Same as above for right size
-                    if check_i + 1 >= self.contourDensity:
-                        normalR = np.array([0, 0])
+                    if check_i + 1 >= self.contour_density:
+                        normal_r = np.array([0, 0])
                     else:
-                        normalR = np.flip(endoContour[check_i + 1] - endoContour[check_i]) * [-1, 1]
-                        if np.dot(normalR, centroid - endoContour[check_i]) > 0:
-                            normalR *= -1
+                        normal_r = np.flip(endoContour[check_i + 1] - endoContour[check_i]) * [-1, 1]
+                        if np.dot(normal_r, centroid - endoContour[check_i]) > 0:
+                            normal_r *= -1
 
                     # Assign the new point - adding the normalized vector that is the sum of the two normals.
-                    epiContour[i] = endoContour[check_i] + ((normalR + normalL) / np.linalg.norm(normalR + normalL)) * 1.002
+                    epiContour[i] = endoContour[check_i] + ((normal_r + normal_l) / np.linalg.norm(normal_r + normal_l)) * 1.002
                     # Can we break here?
 
         return all_far
 
 
-    def getApex(self, epiContour):
+    def get_apex(self, epi_contour):
         """
         Acquire the coordinate of the apex lying along the epiContour
-        :param epiContour: (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the equidistant
+        :param epi_contour: (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the equidistant
                           epicardium contour
         :return: (ndarray), shape=(2,) the coordinate of the apex, lying on the epicardium contour
                  (ndarray), shape=(2,) the coordinate of the ref, middle point of the base
         """
         # Get the middle point of the base
-        ref = (epiContour[0] - epiContour[-1]) / 2
-        ref += epiContour[-1]
+        ref = (epi_contour[0] - epi_contour[-1]) / 2
+        ref += epi_contour[-1]
 
         # Get all distance from the middle of the base to each epiContour point. The apex is equal to the point holding
         # the longest distance
-        apex_ind = np.argmax([np.linalg.norm(epiContour[i] - ref) for i in range(self.contourDensity)])
-        return epiContour[apex_ind], ref
+        apex_ind = np.argmax([np.linalg.norm(epi_contour[i] - ref) for i in range(self.contour_density)])
+        return epi_contour[apex_ind], ref
 
 
-    def populatePointCloudsByInterp(self, oldEndo, oldEpi):
+    def interp_contours(self, old_endo, old_epi):
         """
         Modify the given contour using an interpolation call, constraining the points in contour to be 100, increasing
         its equi-distance and smoothness
 
-        :param oldEndo: (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the endocardium contour
-        :param oldEpi: (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the epicardium contour
+        :param old_endo: (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the endocardium contour
+        :param old_epi: (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the epicardium contour
         :return:
         """
         # Initialize new containers for the contours
-        endoContour = np.zeros(shape=(self.contourDensity, 2))
-        epiContour = np.zeros(shape=(self.contourDensity, 2))
+        endo_contour = np.zeros(shape=(self.contour_density, 2))
+        epi_contour = np.zeros(shape=(self.contour_density, 2))
 
         # Cumulative endoBlocked Curve Length
-        cumEndoCL = cumulativeCurveLength(oldEndo)
+        cum_endo_cl = cumulative_curve_length(old_endo)
         # Cumulative epiBlocked Curve Length
-        cumEpiCL = cumulativeCurveLength(oldEpi)
+        cum_epi_cl = cumulative_curve_length(old_epi)
 
         # Using np.interp for acquisition of new equidistant points at a given density
-        endo_interped_x = np.interp(x=np.linspace(0, cumEndoCL[-1], self.contourDensity),
-                                    xp=cumEndoCL,
-                                    fp=np.array(oldEndo)[:, 0])
+        endo_interped_x = np.interp(x=np.linspace(0, cum_endo_cl[-1], self.contour_density),
+                                    xp=cum_endo_cl,
+                                    fp=np.array(old_endo)[:, 0])
 
-        endo_interped_y = np.interp(x=np.linspace(0, cumEndoCL[-1], self.contourDensity),
-                                    xp=cumEndoCL,
-                                    fp=np.array(oldEndo)[:, 1])
+        endo_interped_y = np.interp(x=np.linspace(0, cum_endo_cl[-1], self.contour_density),
+                                    xp=cum_endo_cl,
+                                    fp=np.array(old_endo)[:, 1])
 
-        epi_interped_x = np.interp(x=np.linspace(0, cumEpiCL[-1], self.contourDensity),
-                                   xp=cumEpiCL,
-                                   fp=np.array(oldEpi)[:, 0])
+        epi_interped_x = np.interp(x=np.linspace(0, cum_epi_cl[-1], self.contour_density),
+                                   xp=cum_epi_cl,
+                                   fp=np.array(old_epi)[:, 0])
 
-        epi_interped_y = np.interp(x=np.linspace(0, cumEpiCL[-1], self.contourDensity),
-                                   xp=cumEpiCL,
-                                   fp=np.array(oldEpi)[:, 1])
+        epi_interped_y = np.interp(x=np.linspace(0, cum_epi_cl[-1], self.contour_density),
+                                   xp=cum_epi_cl,
+                                   fp=np.array(old_epi)[:, 1])
 
         # Update the contour containers with the newly interpolated values
-        epiContour[:,0] = epi_interped_x
-        epiContour[:,1] = epi_interped_y
-        endoContour[:,0] = endo_interped_x
-        endoContour[:,1] = endo_interped_y
+        epi_contour[:,0] = epi_interped_x
+        epi_contour[:,1] = epi_interped_y
+        endo_contour[:,0] = endo_interped_x
+        endo_contour[:,1] = endo_interped_y
 
-        return endoContour, epiContour
+        return endo_contour, epi_contour
 
 
-    def acquireEndoEpiBlocks(self, start_endo_phi, centroid, mask):
+    def acquire_endo_epi_pixels(self, start_endo_phi, centroid, mask):
         """
         Starting from a given phi, linearly iterate through 2pi radians, casting rays at dPhi and assigning the
         blocked endo and epi lining.
@@ -215,7 +215,7 @@ class MaskToContour():
         epi = {}
         phis = np.linspace(start_endo_phi, start_endo_phi - 2*np.pi, int(2*np.pi / self.dPhi) - 1)
         for i,phi in enumerate((phis)):
-            ray, ray_indices = self.getRay(phi, centroid, mask)
+            ray, ray_indices = self.get_ray(phi, centroid, mask)
             if np.count_nonzero(ray) == 0:
                 if not started: continue
                 break
@@ -239,7 +239,7 @@ class MaskToContour():
         return np.array(list(endo.keys())), np.array(list(epi.keys()))
 
 
-    def getRay(self, phi, centroid, mask):
+    def get_ray(self, phi, centroid, mask):
         """
         Generic raycast - given an angle and a start pixel coordinate, obtain a vector of the ray to the border of image
 
@@ -280,32 +280,32 @@ class MaskToContour():
         return np.array(ray_vals), list(inds.keys())
 
 
-    def getEdgePhi(self, centroid, mask):
+    def get_edge_phi(self, centroid, mask):
         """
         Cast rays in a counter clockwise direction to obtain the angle from the centroid to start separating endo and epi
         :param centroid: (ndarray) shape=(2,) the coordinate of the ventricle's centroid
         :return: (float) phi
         """
-        hitWall = False
-        startPhi = np.pi / 2
-        for phi in np.linspace(startPhi, startPhi + 2*np.pi, int(2*np.pi / self.dPhi)):
-            ray, ray_indices = self.getRay(phi, centroid, mask)
+        hit_wall = False
+        start_phi = np.pi / 2
+        for phi in np.linspace(start_phi, start_phi + 2*np.pi, int(2*np.pi / self.dPhi)):
+            ray, ray_indices = self.get_ray(phi, centroid, mask)
             if np.count_nonzero(ray) == 0:
-                if not hitWall: continue
+                if not hit_wall: continue
                 return phi
-            hitWall = True
+            hit_wall = True
         raise Exception("Ventricle is enclosed and could not find starting point for contouring")
 
 
-    def display(self, img, mask, endoContour=None, epiContour=None, apex=None, ref=None):
+    def display(self, img, mask, endo_contour=None, epi_contour=None, apex=None, ref=None):
         """
         Use plotly to generate figures with the contours overlayed on the mask and image
 
         :param img: (ndarray), shape=(N, M), dtype=uint16, MRI derived initial image before segmentation, for overlay
         :param myo_mask: (ndarray), shape=(N, M), dtype=  1 assigned to only pixels on the lining of the ventricle, 0 elsewhere
-        :param endoContour:  (ndarray), shape=(self.pointCloudDensity, 2)  ordered, each row is a coordinate of the equidistant
+        :param endo_contour:  (ndarray), shape=(self.pointCloudDensity, 2)  ordered, each row is a coordinate of the equidistant
                       endocardium contour
-        :param epiContour:  (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the equidistant
+        :param epi_contour:  (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the equidistant
                       epicardium contour
         :param apex: (ndarray) shape=(2,) the coordinate of the ventricle's apex
         :param ref: (ndarray) shape=(2,) the coordinate of the middle ventricle base
@@ -314,10 +314,10 @@ class MaskToContour():
         for base_img in (img, mask):
             if base_img is None: continue
             fig = px.imshow(base_img, color_continuous_scale='gray', origin="lower")
-            if endoContour is not None:
-                fig.add_trace(go.Scatter(x=endoContour[:, 0], y=endoContour[:, 1], mode='markers+lines', marker=dict(color='#01497c', size=8)))
-            if epiContour is not None:
-                fig.add_trace(go.Scatter(x=epiContour[:, 0], y=epiContour[:, 1], mode='markers+lines', marker=dict(color='#89c2d9', size=8)))
+            if endo_contour is not None:
+                fig.add_trace(go.Scatter(x=endo_contour[:, 0], y=endo_contour[:, 1], mode='markers+lines', marker=dict(color='#01497c', size=8)))
+            if epi_contour is not None:
+                fig.add_trace(go.Scatter(x=epi_contour[:, 0], y=epi_contour[:, 1], mode='markers+lines', marker=dict(color='#89c2d9', size=8)))
             if apex is not None:
                 fig.add_trace(go.Scatter(x=[apex[0], ref[0]], y=[apex[1], ref[1]], marker=dict(color="#277da1", size=20)))
 

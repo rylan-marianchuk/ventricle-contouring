@@ -11,7 +11,7 @@ def bounds(i, j, imshape):
         return True
     return False
 
-def cumulativeCurveLength(contour):
+def cumulative_curve_length(contour):
     """
     Acquire the cumulative curve length of a contour
     :param contour: (ndarray), shape=(N, 2) ordered, each row is a coordinate of contour who's curveLength is needed

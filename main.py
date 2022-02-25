@@ -1,4 +1,4 @@
-from maskToContour import MaskToContour
+from contour import MaskToContour
 import numpy as np
 import imageio
 import os
