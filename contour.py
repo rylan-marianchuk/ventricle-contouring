@@ -5,21 +5,23 @@ from utils import cumulative_curve_length, bounds
 
 class MaskToContour():
 
-    def __init__(self, debug=False, dPhi=0.01, dR=0.5, contour_density=100):
+    def __init__(self, debug=False, dPhi=0.01, dR=0.5, contour_density=100, save_to_disk=False):
         """
         Construct a contour generator object
         :param debug: (bool) whether to generate figures showing the contour overlayed on mask and image
         :param dPhi: (float) increment of the angle phi when casting rays in polar coordinates
         :param dR: (float) increment of the radius when casting rays in polar coordinates
         :param contourDensity: (int) number of points contained in both contours
+        :param save_to_disk: (bool) whether to save this image to the disk or show it viewable on web
         """
         self.dPhi = dPhi
         self.dR = dR
         self.debug = debug
         self.contour_density = contour_density
+        self.save_to_disk = save_to_disk
 
 
-    def __call__(self, solid_mask, myo_mask, img_overlay=None):
+    def __call__(self, solid_mask, myo_mask, img_overlay=None, out_name=None):
         """
         Obtain the contours of epicaridum, endocardium, and the location of the apex, given the binary masks
         :param solid_mask: (ndarray), shape=(N, M), dtype=
@@ -27,7 +29,7 @@ class MaskToContour():
         :param myo_mask: (ndarray), shape=(N, M), dtype=
                            1 assigned to only pixels on the lining of the ventricle, 0 elsewhere
         :param img_overlay: (ndarray), shape=(N, M), dtype=uint16, MRI derived initial image before segmentation
-
+        :param out_name: (str) the filename to save the overlayed contour image as
 
         :return -
             endo_contour:  (ndarray), shape=(self.pointCloudDensity, 2)  ordered, each row is a coordinate of the equidistant
@@ -64,17 +66,17 @@ class MaskToContour():
 
         if self.debug:
             # Print the standard deviation of all point distances
-            dists = np.array([np.linalg.norm(endo_contour[i] - endo_contour[i + 1]) for i in range(self.contour_density - 1)])
-            print(dists.std())
+            #dists = np.array([np.linalg.norm(endo_contour[i] - endo_contour[i + 1]) for i in range(self.contour_density - 1)])
+            #print(dists.std())
 
             # Color the blocked contours
-            for j, i in endo_blocked:
-                myo_mask[i, j] = 20
+            #for j, i in endo_blocked:
+            #    myo_mask[i, j] = 20
 
-            for j, i in epi_blocked:
-                myo_mask[i, j] = 40
+            #for j, i in epi_blocked:
+            #    myo_mask[i, j] = 40
             # Display the images with contours overlayed
-            self.display(img_overlay, myo_mask, endo_contour, epi_contour, apex, ref)
+            self.display(img_overlay, myo_mask, endo_contour, epi_contour, apex, ref, out_name)
 
         return endo_contour, epi_contour, apex
 
@@ -297,7 +299,7 @@ class MaskToContour():
         raise Exception("Ventricle is enclosed and could not find starting point for contouring")
 
 
-    def display(self, img, mask, endo_contour=None, epi_contour=None, apex=None, ref=None):
+    def display(self, img, myo_mask, endo_contour=None, epi_contour=None, apex=None, ref=None, out_name=None):
         """
         Use plotly to generate figures with the contours overlayed on the mask and image
 
@@ -311,14 +313,26 @@ class MaskToContour():
         :param ref: (ndarray) shape=(2,) the coordinate of the middle ventricle base
         :return: None display the plotly images
         """
-        for base_img in (img, mask):
-            if base_img is None: continue
-            fig = px.imshow(base_img, color_continuous_scale='gray', origin="lower")
-            if endo_contour is not None:
-                fig.add_trace(go.Scatter(x=endo_contour[:, 0], y=endo_contour[:, 1], mode='markers+lines', marker=dict(color='#01497c', size=8)))
-            if epi_contour is not None:
-                fig.add_trace(go.Scatter(x=epi_contour[:, 0], y=epi_contour[:, 1], mode='markers+lines', marker=dict(color='#89c2d9', size=8)))
-            if apex is not None:
-                fig.add_trace(go.Scatter(x=[apex[0], ref[0]], y=[apex[1], ref[1]], marker=dict(color="#277da1", size=20)))
+        img = img.copy()
+        for ij in np.argwhere(myo_mask != 0):
+            i,j = ij
+            r,g,b = img[i,j]
+            new = np.array([min(255.0, r * 1.15), max(0.0, g * 0.85), max(0.0, b * 0.85)])
+            img[i,j] = new
 
+        fig = px.imshow(img, origin="lower")
+        if endo_contour is not None:
+            fig.add_trace(go.Scatter(x=endo_contour[:, 0], y=endo_contour[:, 1], mode='markers+lines',
+                                     marker=dict(color='#01497c', size=8), name="endo"))
+        if epi_contour is not None:
+            fig.add_trace(go.Scatter(x=epi_contour[:, 0], y=epi_contour[:, 1], mode='markers+lines',
+                                     marker=dict(color='#89c2d9', size=8), name="epi"))
+        if apex is not None:
+            fig.add_trace(go.Scatter(x=[apex[0], ref[0]], y=[apex[1], ref[1]], marker=dict(color="#277da1", size=20),
+                                     name="apex"))
+
+        if self.save_to_disk:
+            fig.write_image(out_name + ".png", width=2500, height=2500)
+        else:
             fig.show()
+
