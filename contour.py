@@ -1,7 +1,7 @@
 import numpy as np
 import plotly.graph_objs as go
 import plotly.express as px
-from utils import cumulative_curve_length, bounds
+from utils import cumulative_curve_length, bounds, contour_density_distance, first_flood_fill_size
 
 class MaskToContour():
 
@@ -19,14 +19,17 @@ class MaskToContour():
         self.debug = debug
         self.contour_density = contour_density
         self.save_to_disk = save_to_disk
-
+        self.total_epi_points_moved = 0
+        self.totalDIST_epi_points_moved = 0
+        self.container = []
+        self.totalContoursGenerated = 0
 
     def __call__(self, solid_mask, myo_mask, img_overlay=None, out_name=None):
         """
         Obtain the contours of epicaridum, endocardium, and the location of the apex, given the binary masks
-        :param solid_mask: (ndarray), shape=(N, M), dtype=
+        :param solid_mask: (ndarray), shape=(N, M), dtype=int
                            1 assigned to every pixel within the ventricle, including the lining and its volume, 0 elsewhere
-        :param myo_mask: (ndarray), shape=(N, M), dtype=
+        :param myo_mask: (ndarray), shape=(N, M), dtype=int
                            1 assigned to only pixels on the lining of the ventricle, 0 elsewhere
         :param img_overlay: (ndarray), shape=(N, M), dtype=uint16, MRI derived initial image before segmentation
         :param out_name: (str) the filename to save the overlayed contour image as
@@ -38,6 +41,8 @@ class MaskToContour():
                           epicardium contour
             apex: (ndarray), shape=(2,) the coordinate of the apex, lying on the epicardium contour
         """
+        # A Dictionary holding quality parameters to return
+        quality = {}
 
         # Get center of ventricle
         centroid = np.argwhere(solid_mask == 1).sum(0) / np.count_nonzero(solid_mask)
@@ -47,16 +52,16 @@ class MaskToContour():
         start_endo_phi = self.get_edge_phi(centroid, myo_mask)
 
         # Go clockwise and populate the blocked contour of both endo and epi
-        endo_blocked, epi_blocked = self.acquire_endo_epi_pixels(start_endo_phi, centroid, myo_mask)
+        endo_blocked, epi_blocked = self.acquire_endo_epi_pixels(start_endo_phi, centroid, myo_mask, quality)
 
         # Get equi-distant point clouds from the blocked point sets
         endo_contour, epi_contour = self.interp_contours(endo_blocked, epi_blocked)
 
         # Fix the distances of endo and epi so that there is at least a 1 unit gap between them, resampling on each fix
-        loopsLeft = 10
-        while not self.move_epi(endo_contour, epi_contour, centroid) and loopsLeft > 0:
+        loops_left = 10
+        while not self.move_epi(endo_contour, epi_contour, centroid, quality) and loops_left > 0:
             endo_contour, epi_contour = self.interp_contours(endo_contour, epi_contour)
-            loopsLeft -= 1
+            loops_left -= 1
 
         endo_contour, epi_contour = self.interp_contours(endo_contour, epi_contour)
         endo_contour, epi_contour = self.interp_contours(endo_contour, epi_contour)
@@ -78,10 +83,14 @@ class MaskToContour():
             # Display the images with contours overlayed
             self.display(img_overlay, myo_mask, endo_contour, epi_contour, apex, ref, out_name)
 
-        return endo_contour, epi_contour, apex
+        quality["endo_equidist"] = contour_density_distance(endo_contour)
+        quality["epi_equidist"] = contour_density_distance(epi_contour)
+        quality["loops_left"] = loops_left
+        quality["prop_first_flood"] = first_flood_fill_size(myo_mask) / np.count_nonzero(myo_mask)
+        return endo_contour, epi_contour, apex, quality
 
 
-    def move_epi(self, endoContour, epiContour, centroid):
+    def move_epi(self, endoContour, epiContour, centroid, quality):
         """
         Go through the neighbours of each point in the epiContour, and check if they are at least 1 unit away from all
         endo neighbours.
@@ -89,22 +98,27 @@ class MaskToContour():
         If an epiContour point is too close, move it one unit away in the direction of the normal to that endo point.
         A normal to a point is defined by the sum of the normals of its connecting line segments.
 
-        endoContour:  (ndarray), shape=(self.pointCloudDensity, 2)  ordered, each row is a coordinate of the equidistant
+        :param endoContour:  (ndarray), shape=(self.pointCloudDensity, 2)  ordered, each row is a coordinate of the equidistant
                       endocardium contour
-        epiContour:  (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the equidistant
+        :param epiContour:  (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the equidistant
                       epicardium contour
+        :param centroid: (ndarray) shape=(2,) the coordinate of the ventricle's centroid
+        :param quality: (dict) key: (str) description of quality parameter -> val
         :return:  (bool) whether a point in the epiContour was too close and had to be moved
         """
 
         radius = 3
         all_far = True
+        quality["epi_moved_count"] = 0
+        quality["epi_moved_dist"] = 0
         for i in range(self.contour_density):
             # Using the radius get the indices to check surrounding
             check = [j for j in range(i-radius, i+radius+1) if 0 <= j < self.contour_density]
             for check_i in check:
                 nrm = np.linalg.norm(endoContour[check_i] - epiContour[i])
-
+                # Move if too close or epi is on the inside
                 if nrm < 1:
+                    quality["epi_moved_count"] += 1
                     if all_far: all_far = False
 
                     # Get direction to move by adding the two normals of the neighbouring line segments
@@ -128,7 +142,10 @@ class MaskToContour():
                             normal_r *= -1
 
                     # Assign the new point - adding the normalized vector that is the sum of the two normals.
-                    epiContour[i] = endoContour[check_i] + ((normal_r + normal_l) / np.linalg.norm(normal_r + normal_l)) * 1.002
+
+                    newLoc = endoContour[check_i] + ((normal_r + normal_l) / np.linalg.norm(normal_r + normal_l)) * 1.002
+                    quality["epi_moved_dist"] += np.linalg.norm(epiContour[i] - newLoc)
+                    epiContour[i] = newLoc
                     # Can we break here?
 
         return all_far
@@ -196,7 +213,7 @@ class MaskToContour():
         return endo_contour, epi_contour
 
 
-    def acquire_endo_epi_pixels(self, start_endo_phi, centroid, mask):
+    def acquire_endo_epi_pixels(self, start_endo_phi, centroid, mask, quality):
         """
         Starting from a given phi, linearly iterate through 2pi radians, casting rays at dPhi and assigning the
         blocked endo and epi lining.
@@ -204,6 +221,7 @@ class MaskToContour():
         :param start_endo_phi: the identified angle from the centroid to start gathering the endo & epicardium
         :param centroid: (ndarray) shape=(2,), the coordinate of the ventricle's centroid
         :param mask: (ndarray) shape=(N, M), dtype=  1 assigned to only pixels on the lining of the ventricle, 0 elsewhere
+        :param quality: (dict) key: (str) description of quality parameter -> val
         :return:
             endoBlocked:  (ndarray) shape=(unknown, 2)  ordered, each row is an INTEGER coordinate of the
                       endocardium contour
@@ -220,6 +238,8 @@ class MaskToContour():
             ray, ray_indices = self.get_ray(phi, centroid, mask)
             if np.count_nonzero(ray) == 0:
                 if not started: continue
+                quality["start_phi"] = start_endo_phi
+                quality["end_phi"] = phi
                 break
 
             if not started: started = True
