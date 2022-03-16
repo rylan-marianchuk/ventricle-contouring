@@ -30,7 +30,7 @@ endo, epi, apex = GetContour(solid_mask, myo_mask)
 
 See the docstring in below (duplicated in from ``__call__()``) in addition to ``__init__()``  for specfic shapes and dtypes and optional parameters to invoke.
 
-```python
+```
 __call__():
 """
 Obtain the contours of epicaridum, endocardium, and the location of the apex, and quality parameters given the binary masks
