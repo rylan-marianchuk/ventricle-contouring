@@ -19,33 +19,41 @@ class MaskToContour():
         self.debug = debug
         self.contour_density = contour_density
         self.save_to_disk = save_to_disk
-        self.total_epi_points_moved = 0
-        self.totalDIST_epi_points_moved = 0
-        self.container = []
-        self.totalContoursGenerated = 0
 
-    def __call__(self, solid_mask, myo_mask, img_overlay=None, out_name=None):
+
+    def __call__(self, lumen_mask, myo_mask, img_overlay=None, out_name=None):
         """
-        Obtain the contours of epicaridum, endocardium, and the location of the apex, given the binary masks
-        :param solid_mask: (ndarray), shape=(N, M), dtype=int
-                           1 assigned to every pixel within the ventricle, including the lining and its volume, 0 elsewhere
-        :param myo_mask: (ndarray), shape=(N, M), dtype=int
-                           1 assigned to only pixels on the lining of the ventricle, 0 elsewhere
-        :param img_overlay: (ndarray), shape=(N, M), dtype=uint16, MRI derived initial image before segmentation
-        :param out_name: (str) the filename to save the overlayed contour image as
+        Obtain the contours of epicaridum, endocardium, and the location of the apex, and quality parameters given the binary masks
 
-        :return -
-            endo_contour:  (ndarray), shape=(self.pointCloudDensity, 2)  ordered, each row is a coordinate of the equidistant
-                          endocardium contour
-            epi_contour:  (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the equidistant
-                          epicardium contour
-            apex: (ndarray), shape=(2,) the coordinate of the apex, lying on the epicardium contour
+        :param lumen_mask:  (ndarray), shape=(N, M), dtype=int
+                            1 assigned to every pixel within the blood volume of the ventricle (lumen), 0 elsewhere
+        :param myo_mask:    (ndarray), shape=(N, M), dtype=int
+                            1 assigned to only pixels on the lining of the ventricle (myocardium), 0 elsewhere
+        :param img_overlay: (ndarray), shape=(N, M), dtype=uint16, MRI derived initial image before segmentation
+        :param out_name:    (str) the filename to save the overlayed contour image as
+
+        :return --
+
+        endo_contour:   (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the equidistant
+                        endocardium contour
+        epi_contour:    (ndarray), shape=(self.pointCloudDensity, 2) ordered, each row is a coordinate of the equidistant
+                        epicardium contour
+        apex:           (ndarray), shape=(2,) the coordinate of the apex, lying on the epicardium contour
+        quality:        (dict) a collection of statistics populated during contour generation:
+            -  endo_equidist     the distance between all points in the endo_contour
+            -  epi_equidist      the distance between all points in the epi_contour
+            -  loops_left        10 - times needed to move epi_contour due to distance clashes (too close)
+            -  prop_first_flood  percentage of 1's filled on the myocardium mask when flood filling from an arbitrary 1 start
+            -  start_phi         the angle in radians from initial arm centroid -> (1, 0) to terminal arm centroid -> endo_contour[0]
+            -  end_phi           the angle in radians from initial arm centroid -> (1, 0) to terminal arm centroid -> endo_contour[-1]
+            -  epi_moved_dist    the total distance (1 unit is 1 pixel) of all points moved automatically in the epi_contour due to distance clashes
+            -  epi_moved_count   the total number of all points moved automatically in the epi_contour due to distance clashes (not unique, can include duplicate points over iterations)
         """
         # A Dictionary holding quality parameters to return
         quality = {}
 
         # Get center of ventricle
-        centroid = np.argwhere(solid_mask == 1).sum(0) / np.count_nonzero(solid_mask)
+        centroid = np.argwhere(lumen_mask == 1).sum(0) / np.count_nonzero(lumen_mask)
         centroid = np.flip(centroid)
 
         # Cast rays counter clockwise and return the phi of first all zero ray after finding ventricle
