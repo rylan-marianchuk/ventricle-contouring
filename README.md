@@ -25,7 +25,7 @@ Given two binary masks as ndarrays:
 The endocardium and epicardium contours, in addition to the apex, can be obtained from these masks by calling the ``MaskToContour()`` object:
 ```
 GetContour = MaskToContour()
-endo, epi, apex = GetContour(solid_mask, myo_mask)
+endo, epi, apex, quality = GetContour(solid_mask, myo_mask)
 ```
 
 See the docstring in below (duplicated in from ``__call__()``) in addition to ``__init__()``  for specfic shapes and dtypes and optional parameters to invoke.
@@ -72,6 +72,6 @@ Constraints:
 
 ```
 GetContour = MaskToContour(debug=True, dPhi=0.01, dR=0.5, contourDensity=100)
-endo, epi, apex = GetContour(solid_mask, myo_mask)
+endo, epi, apex, quality = GetContour(solid_mask, myo_mask)
 ```
 <img alt="Example output overlayed on MR image" height="500" src="img/readme/result-vis.png" width="500"/>
