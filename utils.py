@@ -14,17 +14,18 @@ def bounds(i, j, imshape):
 def cumulative_curve_length(contour):
     """
     Acquire the cumulative curve length of a contour
-    :param contour: (ndarray), shape=(N, 2) ordered, each row is a coordinate of contour who's curveLength is needed
+    :param contour: (ndarray), shape=(N, 2) ordered, each row is a coordinate of contour whose curveLength is needed
     :return: (ndarray), shape=(N,) dtype=float32 where cumulative[i] is the curvelength from contour[0] to contour[i] inclusive
     """
-    cumulative = np.zeros(len(contour))
+    return np.hstack((np.zeros(1), np.cumsum(np.linalg.norm(np.diff(contour, axis=0), axis=1))))
+    #cumulative = np.zeros(len(contour))
 
-    for i in range(1, cumulative.shape[0]):
-        base_sq = (contour[i][0] - contour[i - 1][0]) ** 2
-        height_sq = (contour[i][1] - contour[i - 1][1]) ** 2
-        dist = np.sqrt(base_sq + height_sq)
-        cumulative[i] = cumulative[i - 1] + dist
-    return cumulative
+    #for i in range(1, cumulative.shape[0]):
+        #base_sq = (contour[i][0] - contour[i - 1][0]) ** 2
+        #height_sq = (contour[i][1] - contour[i - 1][1]) ** 2
+        #dist = np.sqrt(base_sq + height_sq)
+        #cumulative[i] = cumulative[i - 1] + dist
+    #return cumulative
 
 def contour_density_distance(contour):
     """
