@@ -95,7 +95,7 @@ class MaskToContour():
         quality["epi_equidist"] = contour_density_distance(epi_contour)
         quality["loops_left"] = loops_left
         quality["prop_first_flood"] = first_flood_fill_size(myo_mask) / np.count_nonzero(myo_mask)
-        return endo_contour, epi_contour, apex, ref, centroid, quality
+        return endo_contour, epi_contour, apex, quality
 
 
     def move_epi(self, endoContour, epiContour, centroid, quality):
